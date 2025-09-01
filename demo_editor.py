@@ -1,20 +1,22 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QMenu
+from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QMenu, QComboBox
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QTextListFormat
+from PyQt6.QtGui import QTextListFormat, QKeyEvent, QTextCharFormat
 
 from base_editing import BaseEditingMixin
 from char_format import CharFormatMixin
 from paragraph_format import ParagraphFormatMixin
+from doc_structure import DocStructureMixin
+from advanced_editing import AdvancedEditingMixin
 
-class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormatMixin):
+class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormatMixin, DocStructureMixin, AdvancedEditingMixin):
     """
     The main window for the StoryWeaver editor.
     """
     def __init__(self):
         super().__init__()
         self.setWindowTitle("StoryWeaver Editor")
-        self.setGeometry(100, 100, 1024, 768)
+        self.setGeometry(100, 100, 1200, 800)
 
         self.editor = QTextEdit()
         self.setCentralWidget(self.editor)
@@ -23,15 +25,14 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         self._setup_base_editing_actions()
         self._setup_char_format_actions()
         self._setup_paragraph_format_actions()
+        self._setup_doc_structure_actions()
+        self._setup_advanced_editing_actions()
 
         # Setup UI components and connect signals
         self._setup_ui_components()
         self._connect_signals()
 
     def _setup_ui_components(self):
-        """
-        功能: 028, 029, 054, 055 - 设置UI组件
-        """
         # --- Toolbars ---
         edit_toolbar = self.addToolBar("编辑")
         edit_toolbar.addAction(self.undo_action)
@@ -47,8 +48,13 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         format_toolbar.addAction(self.underline_action)
         format_toolbar.addAction(self.strike_action)
         format_toolbar.addSeparator()
+        format_toolbar.addAction(self.superscript_action)
+        format_toolbar.addAction(self.subscript_action)
+        format_toolbar.addSeparator()
         format_toolbar.addAction(self.font_action)
         format_toolbar.addAction(self.color_action)
+        format_toolbar.addAction(self.highlight_color_action)
+        format_toolbar.addAction(self.letter_spacing_action)
 
         paragraph_toolbar = self.addToolBar("段落")
         paragraph_toolbar.addActions(self.align_left_action.parent().actions())
@@ -61,6 +67,14 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         paragraph_toolbar.addSeparator()
         paragraph_toolbar.addAction(self.line_spacing_action)
         paragraph_toolbar.addAction(self.paragraph_spacing_action)
+
+        styles_toolbar = self.addToolBar("样式")
+        self.heading_combo = QComboBox()
+        self.heading_combo.addItems(["正文", "标题 1", "标题 2", "标题 3", "标题 4", "标题 5", "标题 6"])
+        styles_toolbar.addWidget(self.heading_combo)
+        styles_toolbar.addAction(self.quote_style_action)
+        styles_toolbar.addAction(self.code_block_style_action)
+        styles_toolbar.addAction(self.page_break_action)
 
         # --- Menu Bar ---
         menu_bar = self.menuBar()
@@ -81,8 +95,17 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         format_menu.addAction(self.underline_action)
         format_menu.addAction(self.strike_action)
         format_menu.addSeparator()
+        format_menu.addAction(self.superscript_action)
+        format_menu.addAction(self.subscript_action)
+        format_menu.addSeparator()
         format_menu.addAction(self.font_action)
         format_menu.addAction(self.color_action)
+        format_menu.addAction(self.highlight_color_action)
+        format_menu.addSeparator()
+        format_menu.addAction(self.letter_spacing_action)
+        format_menu.addSeparator()
+        format_menu.addAction(self.smart_indent_action)
+
 
         paragraph_menu = menu_bar.addMenu("段落 (&P)")
         paragraph_menu.addActions(self.align_left_action.parent().actions())
@@ -101,12 +124,24 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         line_spacing_menu.addAction("2.0倍行距").triggered.connect(lambda: self.apply_line_spacing(2.0))
         self.line_spacing_action.setMenu(line_spacing_menu)
         paragraph_menu.addAction(self.line_spacing_action)
-
         paragraph_menu.addAction(self.paragraph_spacing_action)
 
-    def _connect_signals(self):
-        # Base editing signals are connected in the QAction setup
+        styles_menu = menu_bar.addMenu("样式 (&S)")
+        styles_menu.addAction(self.normal_text_action)
+        styles_menu.addSeparator()
+        styles_menu.addAction(self.heading1_action)
+        styles_menu.addAction(self.heading2_action)
+        styles_menu.addAction(self.heading3_action)
+        styles_menu.addAction(self.heading4_action)
+        styles_menu.addAction(self.heading5_action)
+        styles_menu.addAction(self.heading6_action)
+        styles_menu.addSeparator()
+        styles_menu.addAction(self.quote_style_action)
+        styles_menu.addAction(self.code_block_style_action)
+        styles_menu.addSeparator()
+        styles_menu.addAction(self.page_break_action)
 
+    def _connect_signals(self):
         # Char format signals
         self.editor.cursorPositionChanged.connect(self.update_format_actions)
 
@@ -120,8 +155,31 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         self.bullet_list_action.triggered.connect(lambda: self.create_list(QTextListFormat.Style.ListDisc))
         self.numbered_list_action.triggered.connect(lambda: self.create_list(QTextListFormat.Style.ListDecimal))
         self.paragraph_spacing_action.triggered.connect(self.set_paragraph_spacing)
-
         self.editor.cursorPositionChanged.connect(self.update_paragraph_actions_state)
+
+        # Doc structure signals
+        self.heading_combo.currentIndexChanged.connect(self.set_heading_style_from_combo)
+        self.normal_text_action.triggered.connect(lambda: self.set_heading_style(0))
+        self.heading1_action.triggered.connect(lambda: self.set_heading_style(1))
+        self.heading2_action.triggered.connect(lambda: self.set_heading_style(2))
+        self.heading3_action.triggered.connect(lambda: self.set_heading_style(3))
+        self.heading4_action.triggered.connect(lambda: self.set_heading_style(4))
+        self.heading5_action.triggered.connect(lambda: self.set_heading_style(5))
+        self.heading6_action.triggered.connect(lambda: self.set_heading_style(6))
+        self.quote_style_action.triggered.connect(self.apply_quote_style)
+        self.code_block_style_action.triggered.connect(self.apply_code_block_style)
+        self.page_break_action.triggered.connect(self.insert_page_break)
+        self.editor.cursorPositionChanged.connect(self.update_structure_actions_state)
+
+        # Advanced editing signals
+        self.highlight_color_action.triggered.connect(self.select_highlight_color)
+        self.superscript_action.triggered.connect(self.toggle_superscript)
+        self.subscript_action.triggered.connect(self.toggle_subscript)
+        self.letter_spacing_action.triggered.connect(self.set_letter_spacing)
+        self.editor.cursorPositionChanged.connect(self.update_advanced_actions_state)
+
+    def set_heading_style_from_combo(self, index):
+        self.set_heading_style(index)
 
     def update_paragraph_actions_state(self):
         alignment = self.editor.alignment()
@@ -133,6 +191,18 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
             self.align_right_action.setChecked(True)
         elif alignment == Qt.AlignmentFlag.AlignJustify:
             self.align_justify_action.setChecked(True)
+
+    def update_structure_actions_state(self):
+        level = self.editor.textCursor().blockFormat().headingLevel()
+        self.heading_combo.blockSignals(True)
+        self.heading_combo.setCurrentIndex(level)
+        self.heading_combo.blockSignals(False)
+
+    def update_advanced_actions_state(self):
+        fmt = self.editor.currentCharFormat()
+        align = fmt.verticalAlignment()
+        self.superscript_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSuperScript)
+        self.subscript_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSubScript)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

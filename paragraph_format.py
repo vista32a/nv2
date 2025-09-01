@@ -4,7 +4,7 @@
 
 === 功能目录 ===
 
-📋 07文档功能 (已实现 - 7项):
+📋 07文档功能 (已实现 - 8项):
 ├── 014 - 段落对齐 ✅ (set_alignment)
 ├── 015 - 首行缩进 ✅ (increase_indent/decrease_indent)
 ├── 016 - 段落缩进 ✅ (increase_indent/decrease_indent)
@@ -12,21 +12,19 @@
 ├── 018 - 段前段后间距 ✅ (set_paragraph_spacing)
 ├── 019 - 有序列表 ✅ (create_list)
 ├── 020 - 无序列表 ✅ (create_list)
-
-📋 07文档功能 (未实现 - 1项):
-└── 021 - 多级列表 ❌ (通过缩进可实现，但样式和规则需完善)
+└── 021 - 多级列表 ✅ (increase_indent/decrease_indent)
 
 📋 文档外功能 (辅助方法 - 0项):
 └── (无)
 
 === 模块统计 ===
-- 已实现功能: 7/8 (87.5%)
+- 已实现功能: 8/8 (100%)
 - 核心辅助方法: 0项
-- 总代码行数: ~130行
+- 总代码行数: ~150行
 
 === 特别说明 ===
 - 列表功能目前只支持创建，不支持切换或移除。
-- 多级列表可以通过增减缩进实现，但行为和样式有待完善。
+- 多级列表通过增减缩进实现层级变化。
 """
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtCore import Qt
@@ -79,23 +77,45 @@ class ParagraphFormatMixin:
         self.editor.setAlignment(alignment)
 
     def increase_indent(self):
-        """功能: 016 - 增加缩进"""
+        """功能: 016, 021 - 增加缩进/提升列表层级"""
         cursor = self.editor.textCursor()
         cursor.beginEditBlock()
-        block_format = cursor.blockFormat()
-        block_format.setIndent(block_format.indent() + 1)
-        cursor.setBlockFormat(block_format)
+
+        list_obj = cursor.block().textList()
+        if list_obj:
+            # It's a list, so we change the list's indentation level
+            list_format = list_obj.format()
+            list_format.setIndent(list_format.indent() + 1)
+            list_obj.setFormat(list_format)
+        else:
+            # It's a normal paragraph, change block indent
+            block_format = cursor.blockFormat()
+            block_format.setIndent(block_format.indent() + 1)
+            cursor.setBlockFormat(block_format)
+
         cursor.endEditBlock()
 
     def decrease_indent(self):
-        """功能: 016 - 减少缩进"""
+        """功能: 016, 021 - 减少缩进/降低列表层级"""
         cursor = self.editor.textCursor()
         cursor.beginEditBlock()
-        block_format = cursor.blockFormat()
-        indent = block_format.indent()
-        if indent > 0:
-            block_format.setIndent(indent - 1)
-            cursor.setBlockFormat(block_format)
+
+        list_obj = cursor.block().textList()
+        if list_obj:
+            # It's a list, so we change the list's indentation level
+            list_format = list_obj.format()
+            current_indent = list_format.indent()
+            if current_indent > 1: # List indent starts at 1
+                list_format.setIndent(current_indent - 1)
+                list_obj.setFormat(list_format)
+        else:
+            # It's a normal paragraph, change block indent
+            block_format = cursor.blockFormat()
+            indent = block_format.indent()
+            if indent > 0:
+                block_format.setIndent(indent - 1)
+                cursor.setBlockFormat(block_format)
+
         cursor.endEditBlock()
 
     def create_list(self, style):
