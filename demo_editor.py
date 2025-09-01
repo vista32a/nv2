@@ -1,25 +1,31 @@
 import sys
+import os
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QMenu, QComboBox
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QTextListFormat, QKeyEvent, QTextCharFormat
+from PyQt6.QtGui import QTextListFormat, QKeyEvent, QTextCharFormat, QCloseEvent
 
 from base_editing import BaseEditingMixin
 from char_format import CharFormatMixin
 from paragraph_format import ParagraphFormatMixin
 from doc_structure import DocStructureMixin
 from advanced_editing import AdvancedEditingMixin
+from doc_management import DocManagementMixin
 
-class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormatMixin, DocStructureMixin, AdvancedEditingMixin):
+class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormatMixin, DocStructureMixin, AdvancedEditingMixin, DocManagementMixin):
     """
     The main window for the StoryWeaver editor.
     """
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("StoryWeaver Editor")
+
+        self.current_file_path = None
+        self._update_window_title()
+
         self.setGeometry(100, 100, 1200, 800)
 
         self.editor = QTextEdit()
         self.setCentralWidget(self.editor)
+        self.editor.document().modificationChanged.connect(self.setWindowModified)
 
         # Setup actions from all mixins
         self._setup_base_editing_actions()
@@ -27,13 +33,21 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         self._setup_paragraph_format_actions()
         self._setup_doc_structure_actions()
         self._setup_advanced_editing_actions()
+        self._setup_doc_management_actions()
 
         # Setup UI components and connect signals
         self._setup_ui_components()
         self._connect_signals()
 
+        self.new_file()
+
     def _setup_ui_components(self):
         # --- Toolbars ---
+        file_toolbar = self.addToolBar("文件")
+        file_toolbar.addAction(self.new_action)
+        file_toolbar.addAction(self.open_action)
+        file_toolbar.addAction(self.save_action)
+
         edit_toolbar = self.addToolBar("编辑")
         edit_toolbar.addAction(self.undo_action)
         edit_toolbar.addAction(self.redo_action)
@@ -79,6 +93,14 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         # --- Menu Bar ---
         menu_bar = self.menuBar()
 
+        file_menu = menu_bar.addMenu("文件 (&F)")
+        file_menu.addAction(self.new_action)
+        file_menu.addAction(self.open_action)
+        file_menu.addAction(self.save_action)
+        file_menu.addAction(self.save_as_action)
+        file_menu.addSeparator()
+        file_menu.addAction("退出 (&X)", self.close)
+
         edit_menu = menu_bar.addMenu("编辑 (&E)")
         edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
@@ -105,7 +127,6 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         format_menu.addAction(self.letter_spacing_action)
         format_menu.addSeparator()
         format_menu.addAction(self.smart_indent_action)
-
 
         paragraph_menu = menu_bar.addMenu("段落 (&P)")
         paragraph_menu.addActions(self.align_left_action.parent().actions())
@@ -142,6 +163,8 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         styles_menu.addAction(self.page_break_action)
 
     def _connect_signals(self):
+        # Base editing signals are connected in their QAction setup
+
         # Char format signals
         self.editor.cursorPositionChanged.connect(self.update_format_actions)
 
@@ -178,6 +201,12 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         self.letter_spacing_action.triggered.connect(self.set_letter_spacing)
         self.editor.cursorPositionChanged.connect(self.update_advanced_actions_state)
 
+        # Doc management signals
+        self.new_action.triggered.connect(self.new_file)
+        self.open_action.triggered.connect(self.open_file)
+        self.save_action.triggered.connect(self.save_file)
+        self.save_as_action.triggered.connect(self.save_as_file)
+
     def set_heading_style_from_combo(self, index):
         self.set_heading_style(index)
 
@@ -203,6 +232,13 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         align = fmt.verticalAlignment()
         self.superscript_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSuperScript)
         self.subscript_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSubScript)
+
+    def closeEvent(self, event: QCloseEvent):
+        """Override close event to check for unsaved changes."""
+        if self.maybe_save():
+            event.accept()
+        else:
+            event.ignore()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
