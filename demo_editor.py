@@ -2,8 +2,9 @@ import sys
 import os
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QMenu, QComboBox
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QTextListFormat, QKeyEvent, QTextCharFormat, QCloseEvent
+from PyQt6.QtGui import QTextListFormat, QKeyEvent, QTextCharFormat, QCloseEvent, QFont
 
+from custom_widgets import CustomTextEdit
 from base_editing import BaseEditingMixin
 from char_format import CharFormatMixin
 from paragraph_format import ParagraphFormatMixin
@@ -19,15 +20,15 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         super().__init__()
 
         self.current_file_path = None
-        self._update_window_title()
+        self.copied_char_format = None
+        self.copied_block_format = None
+        self.copied_list = None
 
         self.setGeometry(100, 100, 1200, 800)
 
-        self.editor = QTextEdit()
+        self.editor = CustomTextEdit(self)
         self.setCentralWidget(self.editor)
-        self.editor.document().modificationChanged.connect(self.setWindowModified)
 
-        # Setup actions from all mixins
         self._setup_base_editing_actions()
         self._setup_char_format_actions()
         self._setup_paragraph_format_actions()
@@ -35,11 +36,12 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         self._setup_advanced_editing_actions()
         self._setup_doc_management_actions()
 
-        # Setup UI components and connect signals
         self._setup_ui_components()
         self._connect_signals()
 
         self.new_file()
+        self.editor.document().modificationChanged.connect(self.setWindowModified)
+        self._update_window_title()
 
     def _setup_ui_components(self):
         # --- Toolbars ---
@@ -55,6 +57,8 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         edit_toolbar.addAction(self.cut_action)
         edit_toolbar.addAction(self.copy_action)
         edit_toolbar.addAction(self.paste_action)
+        edit_toolbar.addSeparator()
+        edit_toolbar.addAction(self.format_painter_action)
 
         format_toolbar = self.addToolBar("格式")
         format_toolbar.addAction(self.bold_action)
@@ -110,6 +114,8 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         edit_menu.addAction(self.paste_action)
         edit_menu.addSeparator()
         edit_menu.addAction(self.select_all_action)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self.format_painter_action)
 
         format_menu = menu_bar.addMenu("格式 (&F)")
         format_menu.addAction(self.bold_action)
@@ -125,8 +131,6 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         format_menu.addAction(self.highlight_color_action)
         format_menu.addSeparator()
         format_menu.addAction(self.letter_spacing_action)
-        format_menu.addSeparator()
-        format_menu.addAction(self.smart_indent_action)
 
         paragraph_menu = menu_bar.addMenu("段落 (&P)")
         paragraph_menu.addActions(self.align_left_action.parent().actions())
@@ -162,13 +166,31 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         styles_menu.addSeparator()
         styles_menu.addAction(self.page_break_action)
 
+        tools_menu = menu_bar.addMenu("工具 (&T)")
+        tools_menu.addAction(self.generate_toc_action)
+
     def _connect_signals(self):
-        # Base editing signals are connected in their QAction setup
+        self.editor.cursorPositionChanged.connect(self._update_actions_state)
+        self.editor.selectionChanged.connect(self.on_selection_changed)
 
-        # Char format signals
-        self.editor.cursorPositionChanged.connect(self.update_format_actions)
+        self.new_action.triggered.connect(self.new_file)
+        self.open_action.triggered.connect(self.open_file)
+        self.save_action.triggered.connect(self.save_file)
+        self.save_as_action.triggered.connect(self.save_as_file)
 
-        # Paragraph format signals
+        self.format_painter_action.toggled.connect(self.handle_format_painter_toggle)
+
+        self.bold_action.triggered.connect(self.toggle_bold)
+        self.italic_action.triggered.connect(self.toggle_italic)
+        self.underline_action.triggered.connect(self.toggle_underline)
+        self.strike_action.triggered.connect(self.toggle_strike)
+        self.font_action.triggered.connect(self.select_font)
+        self.color_action.triggered.connect(self.select_color)
+        self.highlight_color_action.triggered.connect(self.select_highlight_color)
+        self.superscript_action.triggered.connect(self.toggle_superscript)
+        self.subscript_action.triggered.connect(self.toggle_subscript)
+        self.letter_spacing_action.triggered.connect(self.set_letter_spacing)
+
         self.align_left_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignLeft))
         self.align_center_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignCenter))
         self.align_right_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignRight))
@@ -178,9 +200,7 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         self.bullet_list_action.triggered.connect(lambda: self.create_list(QTextListFormat.Style.ListDisc))
         self.numbered_list_action.triggered.connect(lambda: self.create_list(QTextListFormat.Style.ListDecimal))
         self.paragraph_spacing_action.triggered.connect(self.set_paragraph_spacing)
-        self.editor.cursorPositionChanged.connect(self.update_paragraph_actions_state)
 
-        # Doc structure signals
         self.heading_combo.currentIndexChanged.connect(self.set_heading_style_from_combo)
         self.normal_text_action.triggered.connect(lambda: self.set_heading_style(0))
         self.heading1_action.triggered.connect(lambda: self.set_heading_style(1))
@@ -192,25 +212,32 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         self.quote_style_action.triggered.connect(self.apply_quote_style)
         self.code_block_style_action.triggered.connect(self.apply_code_block_style)
         self.page_break_action.triggered.connect(self.insert_page_break)
-        self.editor.cursorPositionChanged.connect(self.update_structure_actions_state)
 
-        # Advanced editing signals
-        self.highlight_color_action.triggered.connect(self.select_highlight_color)
-        self.superscript_action.triggered.connect(self.toggle_superscript)
-        self.subscript_action.triggered.connect(self.toggle_subscript)
-        self.letter_spacing_action.triggered.connect(self.set_letter_spacing)
-        self.editor.cursorPositionChanged.connect(self.update_advanced_actions_state)
+        self.generate_toc_action.triggered.connect(self.insert_toc_at_top)
 
-        # Doc management signals
-        self.new_action.triggered.connect(self.new_file)
-        self.open_action.triggered.connect(self.open_file)
-        self.save_action.triggered.connect(self.save_file)
-        self.save_as_action.triggered.connect(self.save_as_file)
+    def handle_format_painter_toggle(self, checked):
+        if checked:
+            if not self.copy_format():
+                self.format_painter_action.setChecked(False)
+        else:
+            self.editor.set_format_painter_active(False)
 
-    def set_heading_style_from_combo(self, index):
-        self.set_heading_style(index)
+    def on_selection_changed(self):
+        if self.editor.format_painter_active and self.editor.textCursor().hasSelection():
+            self.apply_format()
 
-    def update_paragraph_actions_state(self):
+    def _update_actions_state(self):
+        char_fmt = self.editor.currentCharFormat()
+        self.bold_action.setChecked(char_fmt.fontWeight() == QFont.Weight.Bold)
+        self.italic_action.setChecked(char_fmt.fontItalic())
+        self.underline_action.setChecked(char_fmt.fontUnderline())
+        self.strike_action.setChecked(char_fmt.fontStrikeOut())
+
+        vert_align = char_fmt.verticalAlignment()
+        self.superscript_action.setChecked(vert_align == QTextCharFormat.VerticalAlignment.AlignSuperScript)
+        self.subscript_action.setChecked(vert_align == QTextCharFormat.VerticalAlignment.AlignSubScript)
+
+        block_fmt = self.editor.textCursor().blockFormat()
         alignment = self.editor.alignment()
         if alignment == Qt.AlignmentFlag.AlignLeft:
             self.align_left_action.setChecked(True)
@@ -221,20 +248,15 @@ class DemoEditor(QMainWindow, BaseEditingMixin, CharFormatMixin, ParagraphFormat
         elif alignment == Qt.AlignmentFlag.AlignJustify:
             self.align_justify_action.setChecked(True)
 
-    def update_structure_actions_state(self):
-        level = self.editor.textCursor().blockFormat().headingLevel()
+        level = block_fmt.headingLevel()
         self.heading_combo.blockSignals(True)
         self.heading_combo.setCurrentIndex(level)
         self.heading_combo.blockSignals(False)
 
-    def update_advanced_actions_state(self):
-        fmt = self.editor.currentCharFormat()
-        align = fmt.verticalAlignment()
-        self.superscript_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSuperScript)
-        self.subscript_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSubScript)
+    def set_heading_style_from_combo(self, index):
+        self.set_heading_style(index)
 
     def closeEvent(self, event: QCloseEvent):
-        """Override close event to check for unsaved changes."""
         if self.maybe_save():
             event.accept()
         else:

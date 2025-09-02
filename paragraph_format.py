@@ -98,16 +98,25 @@ class ParagraphFormatMixin:
     def decrease_indent(self):
         """功能: 016, 021 - 减少缩进/降低列表层级"""
         cursor = self.editor.textCursor()
+        if cursor.isNull():
+            return
+
         cursor.beginEditBlock()
 
-        list_obj = cursor.block().textList()
-        if list_obj:
-            # It's a list, so we change the list's indentation level
-            list_format = list_obj.format()
+        block = cursor.block()
+        if block.isValid() and block.textList():
+            # Block is in a list, decrease list indent level
+            list_format = block.textList().format()
             current_indent = list_format.indent()
-            if current_indent > 1: # List indent starts at 1
+            if current_indent > 1:
                 list_format.setIndent(current_indent - 1)
-                list_obj.setFormat(list_format)
+                block.textList().setFormat(list_format)
+            else:
+                # Convert the list item back to a normal paragraph
+                # We do this by applying a default block format
+                cursor.setBlockFormat(QTextBlockFormat())
+                # And removing the list-specific character format
+                cursor.setBlockCharFormat(QTextCharFormat())
         else:
             # It's a normal paragraph, change block indent
             block_format = cursor.blockFormat()

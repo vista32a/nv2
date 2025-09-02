@@ -4,30 +4,29 @@
 
 === 功能目录 ===
 
-📋 07文档功能 (已实现 - 3项):
+📋 07文档功能 (已实现 - 4项):
 ├── 033 - 文字背景色/高亮 ✅ (select_highlight_color)
+├── 034 - 格式刷 ✅ (copy_format, apply_format)
 ├── 035 - 上标/下标 ✅ (toggle_superscript, toggle_subscript)
 └── 040 - 字符间距调整 ✅ (set_letter_spacing)
 
-📋 07文档功能 (未实现 - 5项):
-├── 034 - 格式刷 ❌
+📋 07文档功能 (未实现 - 3项):
 ├── 036 - 引用格式 ❌ (已在doc_structure中实现)
 ├── 037 - 代码格式 ❌ (已在doc_structure中实现)
-├── 038 - 智能节点链接与自动完成 ❌
-└── 039 - 智能缩进 ❌ (需要重构keyPressEvent)
+└── 038 - 智能节点链接与自动完成 ❌
 
 📋 文档外功能 (辅助方法 - 0项):
 └── (无)
 
 === 模块统计 ===
-- 已实现功能: 3/8 (37.5%)
+- 已实现功能: 4/7 (57.1%)
 - 核心辅助方法: 0项
-- 总代码行数: ~100行
+- 总代码行数: ~120行
 
 === 特别说明 ===
-- 智能缩进功能需要对QTextEdit进行子类化以正确处理事件，已推迟。
+- 格式刷和智能节点链接是本模块的复杂功能，将后续实现。
 """
-from PyQt6.QtGui import QAction, QColor, QTextCharFormat, QFont, QActionGroup
+from PyQt6.QtGui import QAction, QColor, QTextCharFormat, QFont, QActionGroup, QTextBlockFormat
 from PyQt6.QtWidgets import QColorDialog, QInputDialog
 from PyQt6.QtCore import Qt
 
@@ -38,9 +37,9 @@ class AdvancedEditingMixin:
     """
     def _setup_advanced_editing_actions(self):
         """
-        功能: 033, 035, 039, 040 - 设置高级编辑操作
-        作用: 创建背景色、上下标、智能缩进、字符间距等QAction。
+        功能: 033, 034, 035, 040 - 设置高级编辑操作
         """
+        self.format_painter_action = QAction("格式刷", self, checkable=True)
         self.highlight_color_action = QAction("文字背景色...", self)
 
         self.superscript_action = QAction("上标", self, checkable=True)
@@ -51,10 +50,44 @@ class AdvancedEditingMixin:
         script_group.addAction(self.superscript_action)
         script_group.addAction(self.subscript_action)
 
-        self.smart_indent_action = QAction("智能缩进", self, checkable=True)
-        self.smart_indent_action.setChecked(True) # Enabled by default
-
         self.letter_spacing_action = QAction("字符间距...", self)
+
+    def copy_format(self):
+        """Copies the character and block format at the current cursor position."""
+        cursor = self.editor.textCursor()
+        if not cursor.hasSelection():
+            self.format_painter_action.setChecked(False)
+            return False
+
+        self.copied_char_format = cursor.charFormat()
+        self.copied_block_format = cursor.blockFormat()
+        self.copied_list = cursor.block().textList()
+
+        self.editor.set_format_painter_active(True)
+        return True
+
+    def apply_format(self):
+        """Applies the stored format to the current selection."""
+        if self.copied_char_format is None or self.copied_block_format is None:
+            return
+
+        cursor = self.editor.textCursor()
+        cursor.beginEditBlock()
+
+        if self.copied_list:
+            cursor.createList(self.copied_list.format())
+        else:
+            list_obj = cursor.block().textList()
+            if list_obj:
+                cursor.setBlockFormat(QTextBlockFormat())
+
+        cursor.setBlockFormat(self.copied_block_format)
+        cursor.setCharFormat(self.copied_char_format)
+
+        cursor.endEditBlock()
+
+        self.format_painter_action.setChecked(False)
+        self.editor.set_format_painter_active(False)
 
     def select_highlight_color(self):
         """功能: 033 - 选择文字背景色"""
@@ -81,41 +114,6 @@ class AdvancedEditingMixin:
         else:
             fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
         self.editor.mergeCurrentCharFormat(fmt)
-
-    def handle_smart_indent(self, event):
-        """功能: 039 - 处理智能缩进的按键事件"""
-        if not self.smart_indent_action.isChecked():
-            return False # Let the default handler take over
-
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            cursor = self.editor.textCursor()
-            current_block = cursor.block()
-            prev_block = current_block.previous()
-
-            if prev_block.isValid():
-                # Get current indentation
-                current_indent_str = ""
-                text = prev_block.text()
-                for char in text:
-                    if char.isspace():
-                        current_indent_str += char
-                    else:
-                        break
-
-                # Check if previous line is a list item
-                if prev_block.textList():
-                    cursor.insertBlock()
-                    cursor.insertText(current_indent_str)
-                    return True # We handled the event
-
-                # Check if previous line ends with a colon
-                if text.strip().endswith(':'):
-                    current_indent_str += "    " # Add one level of tab
-                    cursor.insertBlock()
-                    cursor.insertText(current_indent_str)
-                    return True # We handled the event
-
-        return False # Event not handled
 
     def set_letter_spacing(self):
         """功能: 040 - 设置字符间距"""
